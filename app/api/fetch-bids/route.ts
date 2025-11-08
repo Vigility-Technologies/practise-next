@@ -1,0 +1,263 @@
+import { NextRequest, NextResponse } from "next/server";
+import fs from "fs/promises";
+import path from "path";
+
+export async function POST(request: NextRequest) {
+  try {
+    const { csrfToken, endDate } = await request.json();
+
+    if (!csrfToken) {
+      return NextResponse.json(
+        { error: "CSRF token is required" },
+        { status: 400 }
+      );
+    }
+
+    // Read categories from the parent directory
+    const categoriesPath = path.join(process.cwd(), "..", "categories.json");
+    const categories = [
+      {
+        category_name: "Enterprise Storage",
+        category_id: "home_info_co87882452_medi_en44773564",
+      },
+      {
+        category_name: "Library Management Software",
+        category_id: "home_info_soft_4316374606_libr",
+      },
+      {
+        category_name:
+          "Development Tools For Web Application / Portal Application Software",
+        category_id: "home_info_soft_4377702185_deve",
+      },
+      {
+        category_name:
+          "Software Based Solution For Mobile Devices And Cdr Analysis",
+        category_id: "home_info_soft_cont_soft",
+      },
+      {
+        category_name: "Electronic Mail And Messaging Software",
+        category_id: "home_info_soft_info_el60210130",
+      },
+      {
+        category_name: "Vulnerability Management / Assessment Software (v2)",
+        category_id: "home_info_soft_netw_vu05187046",
+      },
+      {
+        category_name: "Data Loss Prevention (dlp) Software",
+        category_id: "home_info_soft_secu_da04615711",
+      },
+      {
+        category_name:
+          "Live Remote Temperature And Humidity Monitoring And Alert System",
+        category_id: "home_info_so18353664_indi_live",
+      },
+      {
+        category_name: "Network Monitoring Software (v2)",
+        category_id: "home_info_soft_ne74724043_netw",
+      },
+      {
+        category_name: "Api Management Software",
+        category_id: "home_info_soft_info_apim",
+      },
+      {
+        category_name:
+          "Cyber Security Audit - Infrastructure Audit, Security And Compliance Audit",
+        category_id: "services_home_cybe_cybe",
+      },
+      {
+        category_name:
+          "Vulnerability And Penetration Testing - Web Application, Mobile Applications...",
+        category_id: "services_home_cybe_vuln",
+      },
+      {
+        category_name:
+          "Artificial Intelligence, Machine Learning, And Deep Learning As A Service...",
+        category_id: "services_home_emer_arti",
+      },
+      {
+        category_name:
+          "E-learning Content Development - Igot; Translation Of Existing E-learning Content...",
+        category_id: "services_home_mult_elea",
+      },
+      {
+        category_name: "Cloud Service",
+        category_id: "home_clou",
+      },
+      {
+        category_name: "Data Analytics Service",
+        category_id: "home_da84613414",
+      },
+      {
+        category_name: "Backup Software",
+        category_id: "home_info_co84875567_so08531025_back",
+      },
+      {
+        category_name: "Enterprise Management System",
+        category_id: "home_info_co84875567_soft_ente",
+      },
+      {
+        category_name: "Web Application Firewall",
+        category_id: "home_info_data_ne51580770_weba",
+      },
+      {
+        category_name: "Hyper Converged Infrastructure For Data Centers",
+        category_id: "home_info_so18353664_data_hype",
+      },
+      {
+        category_name: "Document Management Software",
+        category_id: "home_info_soft_4325585261_docu",
+      },
+      {
+        category_name:
+          "Backup And Replication Software Backup Or Archival Software",
+        category_id: "home_info_soft_4336483473_back",
+      },
+      {
+        category_name: "Network Management  Software",
+        category_id: "home_info_soft_4384644547_netw",
+      },
+      {
+        category_name: "Business Intelligence And Data Analysis Software",
+        category_id: "home_info_soft_draf_busi",
+      },
+      {
+        category_name: "Customer Relationship Management Software",
+        category_id: "home_info_soft_draf_cust",
+      },
+      {
+        category_name: "Data Base Management System Software",
+        category_id: "home_info_soft_draf_data",
+      },
+      {
+        category_name:
+          "Artifical Intelligence (ai) Based Video Analytics Software",
+        category_id: "home_info_soft_indu_arti",
+      },
+      {
+        category_name: "Cyber Security Software / Appliances",
+        category_id: "home_info_soft_secu_cy58162858",
+      },
+      {
+        category_name: "Audit And Compliance Software",
+        category_id: "home_info_soft_soft_audi",
+      },
+      {
+        category_name:
+          "System Integration For Networking And Computing Devices",
+        category_id: "home_info_data_netw_syst",
+      },
+      {
+        category_name: "Ai System",
+        category_id: "home_info_comp_comp_aisy",
+      },
+      {
+        category_name: "IT Professional Outsourcing Service",
+        category_id: "services_home_itpr",
+      },
+      {
+        category_name: "IT Consultants Hiring Services",
+        category_id: "services_home_pr22455282_co24172185",
+      },
+      {
+        category_name: "Security Operations Centre - As Per Atc",
+        category_id: "services_home_cybe_secu",
+      },
+      {
+        category_name: "Application Development",
+        category_id: "services_home_appl",
+      },
+    ];
+
+    const results: any[] = [];
+    let totalBids = 0;
+    let categoriesWithBids = 0;
+
+    console.log(`🚀 Fetching bids for ${categories.length} categories...`);
+
+    for (const category of categories) {
+      try {
+        const payload = {
+          searchType: "bidNumber",
+          bidNumber: "",
+          category: category.category_id,
+          bidEndFrom: "",
+          bidEndTo: endDate || "",
+          page: 1,
+        };
+
+        const body = `payload=${encodeURIComponent(
+          JSON.stringify(payload)
+        )}&csrf_bd_gem_nk=${csrfToken}`;
+
+        const response = await fetch("https://bidplus.gem.gov.in/search-bids", {
+          method: "POST",
+          headers: {
+            accept: "application/json, text/javascript, */*; q=0.01",
+            "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "x-requested-with": "XMLHttpRequest",
+            cookie: `csrf_gem_cookie=${csrfToken}; GeM=1474969956.20480.0000`,
+          },
+          body: body,
+        });
+
+        if (!response.ok) {
+          console.error(
+            `Failed for ${category.category_name}: ${response.status}`
+          );
+          continue;
+        }
+
+        const data = await response.json();
+
+        if (
+          data.response &&
+          data.response.response &&
+          data.response.response.docs
+        ) {
+          const bids = data.response.response.docs.map((doc: any) => ({
+            id: doc.id,
+            bid_number: doc.b_bid_number ? doc.b_bid_number[0] : "N/A",
+            quantity: doc.b_total_quantity ? doc.b_total_quantity[0] : null,
+            end_date: doc.final_end_date_sort
+              ? new Date(doc.final_end_date_sort[0]).toLocaleDateString()
+              : null,
+            department: doc["ba_official_details_deptName"]
+              ? doc["ba_official_details_deptName"][0]
+              : null,
+          }));
+
+          if (bids.length > 0) {
+            results.push({
+              category_name: category.category_name,
+              category_id: category.category_id,
+              bids: bids,
+            });
+            totalBids += bids.length;
+            categoriesWithBids++;
+            console.log(`✅ ${category.category_name}: ${bids.length} bids`);
+          }
+        }
+
+        // Be polite to the server
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      } catch (error: any) {
+        console.error(
+          `Error fetching ${category.category_name}:`,
+          error.message
+        );
+      }
+    }
+
+    return NextResponse.json({
+      stats: {
+        totalCategories: categories.length,
+        categoriesWithBids: categoriesWithBids,
+        totalBids: totalBids,
+      },
+      categories: results,
+    });
+  } catch (error: any) {
+    console.error("Error:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
