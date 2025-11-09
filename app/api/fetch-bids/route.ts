@@ -273,6 +273,7 @@ export async function POST(request: NextRequest) {
       } catch (error: any) {
         console.error(
           `Error fetching ${category.category_name}:`,
+          error,
           error.message
         );
         return null;
