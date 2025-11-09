@@ -14,7 +14,6 @@ export async function POST(request: NextRequest) {
     }
 
     // Read categories from the parent directory
-    const categoriesPath = path.join(process.cwd(), "..", "categories.json");
     const categories = [
       {
         category_name: "Enterprise Storage",
@@ -205,6 +204,11 @@ export async function POST(request: NextRequest) {
           );
 
           if (!response.ok) {
+            console.log(
+              `Failed to fetch bids for ${category.category_name} (page ${page}): ${response.statusText}`,
+              "error =>",
+              response
+            );
             console.error(
               `Failed for ${category.category_name} (page ${page}): ${response.status}`
             );
