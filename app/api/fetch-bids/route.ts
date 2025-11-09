@@ -188,20 +188,42 @@ export async function POST(request: NextRequest) {
             JSON.stringify(payload)
           )}&csrf_bd_gem_nk=${csrfToken}`;
 
-          const response = await fetch(
-            "https://bidplus.gem.gov.in/search-bids",
-            {
-              method: "POST",
-              headers: {
-                accept: "application/json, text/javascript, */*; q=0.01",
-                "content-type":
-                  "application/x-www-form-urlencoded; charset=UTF-8",
-                "x-requested-with": "XMLHttpRequest",
-                cookie: `csrf_gem_cookie=${csrfToken}; GeM=1474969956.20480.0000`,
-              },
-              body: body,
+          // Retry logic for network issues
+          let response;
+          let retries = 3;
+          while (retries > 0) {
+            try {
+              response = await fetch("https://bidplus.gem.gov.in/search-bids", {
+                method: "POST",
+                headers: {
+                  accept: "application/json, text/javascript, */*; q=0.01",
+                  "content-type":
+                    "application/x-www-form-urlencoded; charset=UTF-8",
+                  "x-requested-with": "XMLHttpRequest",
+                  cookie: `csrf_gem_cookie=${csrfToken}; GeM=1474969956.20480.0000`,
+                },
+                body: body,
+                signal: AbortSignal.timeout(30000), // 30 second timeout
+              });
+              break; // Success, exit retry loop
+            } catch (fetchError: any) {
+              retries--;
+              if (retries === 0) throw fetchError;
+              console.log(
+                `⚠️ Retry ${3 - retries}/3 for ${
+                  category.category_name
+                } (page ${page})`
+              );
+              await new Promise((resolve) => setTimeout(resolve, 2000)); // Wait 2s before retry
             }
-          );
+          }
+
+          if (!response) {
+            console.error(
+              `Failed to fetch ${category.category_name} after 3 retries`
+            );
+            break;
+          }
 
           if (!response.ok) {
             console.log(
@@ -280,13 +302,32 @@ export async function POST(request: NextRequest) {
       }
     };
 
-    // Fetch all categories in parallel
-    const results = await Promise.all(
-      categories.map((category) => fetchCategoryBids(category))
-    );
+    // Process categories in batches to avoid overwhelming the server
+    const BATCH_SIZE = 5; // Process 5 categories at a time
+    const allResults: any[] = [];
+
+    for (let i = 0; i < categories.length; i += BATCH_SIZE) {
+      const batch = categories.slice(i, i + BATCH_SIZE);
+      console.log(
+        `🔄 Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(
+          categories.length / BATCH_SIZE
+        )} (${batch.length} categories)...`
+      );
+
+      const batchResults = await Promise.all(
+        batch.map((category) => fetchCategoryBids(category))
+      );
+
+      allResults.push(...batchResults);
+
+      // Small delay between batches (except for the last batch)
+      if (i + BATCH_SIZE < categories.length) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
 
     // Filter out null results and calculate stats
-    const validResults = results.filter((result) => result !== null);
+    const validResults = allResults.filter((result) => result !== null);
     const totalBids = validResults.reduce(
       (sum, result) => sum + result!.bids.length,
       0
