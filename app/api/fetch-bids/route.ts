@@ -159,94 +159,134 @@ export async function POST(request: NextRequest) {
         category_id: "services_home_pr22455282_co24172185",
       },
       {
-        category_name: "Security Operations Centre - As Per Atc",
-        category_id: "services_home_cybe_secu",
-      },
-      {
         category_name: "Application Development",
         category_id: "services_home_appl",
       },
     ];
 
-    const results: any[] = [];
-    let totalBids = 0;
-    let categoriesWithBids = 0;
+    console.log(
+      `🚀 Fetching bids for ${categories.length} categories in parallel...`
+    );
 
-    console.log(`🚀 Fetching bids for ${categories.length} categories...`);
-
-    for (const category of categories) {
+    // Function to fetch all pages for a single category
+    const fetchCategoryBids = async (category: any) => {
       try {
-        const payload = {
-          searchType: "bidNumber",
-          bidNumber: "",
-          category: category.category_id,
-          bidEndFrom: "",
-          bidEndTo: endDate || "",
-          page: 1,
-        };
+        let allBids: any[] = [];
+        let page = 1;
+        let hasMorePages = true;
 
-        const body = `payload=${encodeURIComponent(
-          JSON.stringify(payload)
-        )}&csrf_bd_gem_nk=${csrfToken}`;
+        while (hasMorePages) {
+          const payload = {
+            searchType: "bidNumber",
+            bidNumber: "",
+            category: category.category_id,
+            bidEndFrom: "",
+            bidEndTo: endDate || "",
+            page: page,
+          };
 
-        const response = await fetch("https://bidplus.gem.gov.in/search-bids", {
-          method: "POST",
-          headers: {
-            accept: "application/json, text/javascript, */*; q=0.01",
-            "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "x-requested-with": "XMLHttpRequest",
-            cookie: `csrf_gem_cookie=${csrfToken}; GeM=1474969956.20480.0000`,
-          },
-          body: body,
-        });
+          const body = `payload=${encodeURIComponent(
+            JSON.stringify(payload)
+          )}&csrf_bd_gem_nk=${csrfToken}`;
 
-        if (!response.ok) {
-          console.error(
-            `Failed for ${category.category_name}: ${response.status}`
+          const response = await fetch(
+            "https://bidplus.gem.gov.in/search-bids",
+            {
+              method: "POST",
+              headers: {
+                accept: "application/json, text/javascript, */*; q=0.01",
+                "content-type":
+                  "application/x-www-form-urlencoded; charset=UTF-8",
+                "x-requested-with": "XMLHttpRequest",
+                cookie: `csrf_gem_cookie=${csrfToken}; GeM=1474969956.20480.0000`,
+              },
+              body: body,
+            }
           );
-          continue;
-        }
 
-        const data = await response.json();
+          if (!response.ok) {
+            console.error(
+              `Failed for ${category.category_name} (page ${page}): ${response.status}`
+            );
+            break;
+          }
 
-        if (
-          data.response &&
-          data.response.response &&
-          data.response.response.docs
-        ) {
-          const bids = data.response.response.docs.map((doc: any) => ({
-            id: doc.id,
-            bid_number: doc.b_bid_number ? doc.b_bid_number[0] : "N/A",
-            quantity: doc.b_total_quantity ? doc.b_total_quantity[0] : null,
-            end_date: doc.final_end_date_sort
-              ? new Date(doc.final_end_date_sort[0]).toLocaleDateString()
-              : null,
-            department: doc["ba_official_details_deptName"]
-              ? doc["ba_official_details_deptName"][0]
-              : null,
-          }));
+          const data = await response.json();
 
-          if (bids.length > 0) {
-            results.push({
-              category_name: category.category_name,
-              category_id: category.category_id,
-              bids: bids,
-            });
-            totalBids += bids.length;
-            categoriesWithBids++;
-            console.log(`✅ ${category.category_name}: ${bids.length} bids`);
+          if (
+            data.response &&
+            data.response.response &&
+            data.response.response.docs &&
+            data.response.response.docs.length > 0
+          ) {
+            const bids = data.response.response.docs.map((doc: any) => ({
+              id: doc.id,
+              bid_number: doc.b_bid_number ? doc.b_bid_number[0] : "N/A",
+              quantity: doc.b_total_quantity ? doc.b_total_quantity[0] : null,
+              end_date: doc.final_end_date_sort
+                ? new Date(doc.final_end_date_sort[0]).toLocaleDateString()
+                : null,
+              department: doc["ba_official_details_deptName"]
+                ? doc["ba_official_details_deptName"][0]
+                : null,
+            }));
+
+            allBids = [...allBids, ...bids];
+
+            // Check if there are more pages
+            const totalCount = data.response.response.numFound || 0;
+            const currentCount = page * 10; // Assuming 10 results per page
+            hasMorePages = currentCount < totalCount;
+            page++;
+
+            console.log(
+              `📄 ${category.category_name}: Page ${page - 1} fetched (${
+                bids.length
+              } bids)`
+            );
+          } else {
+            hasMorePages = false;
+          }
+
+          // Small delay between pages
+          if (hasMorePages) {
+            await new Promise((resolve) => setTimeout(resolve, 300));
           }
         }
 
-        // Be polite to the server
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        if (allBids.length > 0) {
+          console.log(
+            `✅ ${category.category_name}: Total ${allBids.length} bids`
+          );
+          return {
+            category_name: category.category_name,
+            category_id: category.category_id,
+            bids: allBids,
+          };
+        }
+
+        return null;
       } catch (error: any) {
         console.error(
           `Error fetching ${category.category_name}:`,
           error.message
         );
+        return null;
       }
-    }
+    };
+
+    // Fetch all categories in parallel
+    const results = await Promise.all(
+      categories.map((category) => fetchCategoryBids(category))
+    );
+
+    // Filter out null results and calculate stats
+    const validResults = results.filter((result) => result !== null);
+    const totalBids = validResults.reduce(
+      (sum, result) => sum + result!.bids.length,
+      0
+    );
+    const categoriesWithBids = validResults.length;
 
     return NextResponse.json({
       stats: {
@@ -254,7 +294,7 @@ export async function POST(request: NextRequest) {
         categoriesWithBids: categoriesWithBids,
         totalBids: totalBids,
       },
-      categories: results,
+      categories: validResults,
     });
   } catch (error: any) {
     console.error("Error:", error);
