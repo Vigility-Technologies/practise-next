@@ -163,9 +163,43 @@ export async function POST(request: NextRequest) {
       },
     ];
 
-    console.log(
-      `🚀 Fetching bids for ${categories.length} categories in parallel...`
-    );
+    console.log(`🚀 Fetching bids for ${categories.length} categories...`);
+
+    // Function to fetch with exponential backoff retry
+    const fetchWithRetry = async (
+      url: string,
+      options: any,
+      maxRetries = 3
+    ) => {
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 second timeout
+
+          const response = await fetch(url, {
+            ...options,
+            signal: controller.signal,
+          });
+
+          clearTimeout(timeoutId);
+          return response;
+        } catch (error: any) {
+          const isLastAttempt = attempt === maxRetries;
+
+          if (isLastAttempt) {
+            throw error;
+          }
+
+          // Exponential backoff: 1s, 2s, 4s
+          const delay = Math.pow(2, attempt - 1) * 1000;
+          console.log(
+            `⚠️ Attempt ${attempt}/${maxRetries} failed, retrying in ${delay}ms...`
+          );
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+      throw new Error("Max retries exceeded");
+    };
 
     // Function to fetch all pages for a single category
     const fetchCategoryBids = async (category: any) => {
@@ -188,12 +222,11 @@ export async function POST(request: NextRequest) {
             JSON.stringify(payload)
           )}&csrf_bd_gem_nk=${csrfToken}`;
 
-          // Retry logic for network issues
           let response;
-          let retries = 3;
-          while (retries > 0) {
-            try {
-              response = await fetch("https://bidplus.gem.gov.in/search-bids", {
+          try {
+            response = await fetchWithRetry(
+              "https://bidplus.gem.gov.in/search-bids",
+              {
                 method: "POST",
                 headers: {
                   accept: "application/json, text/javascript, */*; q=0.01",
@@ -203,24 +236,19 @@ export async function POST(request: NextRequest) {
                   cookie: `csrf_gem_cookie=${csrfToken}; GeM=1474969956.20480.0000`,
                 },
                 body: body,
-                signal: AbortSignal.timeout(30000), // 30 second timeout
-              });
-              break; // Success, exit retry loop
-            } catch (fetchError: any) {
-              retries--;
-              if (retries === 0) throw fetchError;
-              console.log(
-                `⚠️ Retry ${3 - retries}/3 for ${
-                  category.category_name
-                } (page ${page})`
-              );
-              await new Promise((resolve) => setTimeout(resolve, 2000)); // Wait 2s before retry
-            }
+              }
+            );
+          } catch (fetchError: any) {
+            console.error(
+              `❌ Failed to fetch ${category.category_name} (page ${page}) after retries:`,
+              fetchError.message
+            );
+            break;
           }
 
           if (!response) {
             console.error(
-              `Failed to fetch ${category.category_name} after 3 retries`
+              `Failed to fetch ${category.category_name} after retries`
             );
             break;
           }
@@ -274,9 +302,9 @@ export async function POST(request: NextRequest) {
             hasMorePages = false;
           }
 
-          // Small delay between pages
+          // Delay between pages to avoid rate limiting
           if (hasMorePages) {
-            await new Promise((resolve) => setTimeout(resolve, 300));
+            await new Promise((resolve) => setTimeout(resolve, 500));
           }
         }
 
@@ -302,16 +330,19 @@ export async function POST(request: NextRequest) {
       }
     };
 
-    // Process categories in batches to avoid overwhelming the server
-    const BATCH_SIZE = 5; // Process 5 categories at a time
+    // Process categories in smaller batches (2 at a time) to avoid connection pool exhaustion
+    const BATCH_SIZE = 2;
     const allResults: any[] = [];
 
     for (let i = 0; i < categories.length; i += BATCH_SIZE) {
       const batch = categories.slice(i, i + BATCH_SIZE);
+      const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+      const totalBatches = Math.ceil(categories.length / BATCH_SIZE);
+
       console.log(
-        `🔄 Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(
-          categories.length / BATCH_SIZE
-        )} (${batch.length} categories)...`
+        `🔄 Batch ${batchNum}/${totalBatches}: ${batch
+          .map((c) => c.category_name)
+          .join(", ")}`
       );
 
       const batchResults = await Promise.all(
@@ -320,9 +351,9 @@ export async function POST(request: NextRequest) {
 
       allResults.push(...batchResults);
 
-      // Small delay between batches (except for the last batch)
+      // Longer delay between batches to avoid overwhelming Netlify's connection pool
       if (i + BATCH_SIZE < categories.length) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
 
